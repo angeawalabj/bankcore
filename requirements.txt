@@ -1,0 +1,6 @@
+# BankCore — Dependencies
+# Day 01: no external dependencies (stdlib only)
+# Dependencies will be added as the system grows
+
+pytest>=7.0
+pytest-cov>=4.0
