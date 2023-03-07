@@ -1,0 +1,20 @@
+# TransactionService — .dockerignore
+tests/
+docs/
+*.md
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.vscode/
+.idea/
+.git/
+.gitignore
+docker/
+.coverage
+htmlcov/
+.pytest_cache/
+.github/
+*.env
+.env.local
