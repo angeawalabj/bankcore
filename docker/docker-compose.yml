@@ -1,0 +1,152 @@
+version: '3.9'
+
+# BankCore — Docker Compose
+# Orchestrates AccountService + TransactionService + Redis + RabbitMQ
+#
+# Usage:
+#   docker-compose up --build           # start all services
+#   docker-compose up account-service   # start one service
+#   docker-compose down -v              # stop and remove volumes
+#   docker-compose logs -f              # follow all logs
+#
+# After startup:
+#   AccountService:     http://localhost:8001/health
+#   TransactionService: http://localhost:8002/health
+#   RabbitMQ UI:        http://localhost:15672  (guest/guest)
+
+networks:
+  bankcore:
+    driver: bridge
+    name: bankcore-network
+
+volumes:
+  account-data:
+    name: bankcore-account-data
+  transaction-data:
+    name: bankcore-transaction-data
+  redis-data:
+    name: bankcore-redis-data
+
+services:
+
+  # ──────────────────────────────────────────────────────────────────────
+  # AccountService
+  # ──────────────────────────────────────────────────────────────────────
+  account-service:
+    build:
+      context: ../
+      dockerfile: docker/account-service/Dockerfile
+    image: bankcore/account-service:latest
+    container_name: bankcore-account-service
+    ports:
+      - "8001:8001"
+    environment:
+      BANKCORE_ENVIRONMENT: production
+      BANKCORE_DATABASE_URL: sqlite:////app/data/accounts.db
+      SERVICE_PORT: "8001"
+      SERVICE_HOST: "0.0.0.0"
+    volumes:
+      - account-data:/app/data
+    networks:
+      - bankcore
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ──────────────────────────────────────────────────────────────────────
+  # TransactionService
+  # Depends on AccountService being healthy before starting
+  # ──────────────────────────────────────────────────────────────────────
+  transaction-service:
+    build:
+      context: ../
+      dockerfile: docker/transaction-service/Dockerfile
+    image: bankcore/transaction-service:latest
+    container_name: bankcore-transaction-service
+    ports:
+      - "8002:8002"
+    environment:
+      BANKCORE_ENVIRONMENT: production
+      SERVICE_PORT: "8002"
+      SERVICE_HOST: "0.0.0.0"
+      ACCOUNT_SERVICE_URL: "http://account-service:8001"
+      BANKCORE_MAX_TRANSFER: "50000"
+    volumes:
+      - transaction-data:/app/data
+    networks:
+      - bankcore
+    depends_on:
+      account-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8002/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Redis — Cache backend (Day 17)
+  # TransactionService reads account profiles from Redis via CachingServiceClient
+  # ──────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: bankcore-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - bankcore
+    volumes:
+      - redis-data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+  # ──────────────────────────────────────────────────────────────────────
+  # RabbitMQ — Message Queue (Day 18)
+  # TransactionService publishes events; consumers subscribe
+  # ──────────────────────────────────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: bankcore-rabbitmq
+    ports:
+      - "5672:5672"    # AMQP protocol
+      - "15672:15672"  # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: bankcore
+      RABBITMQ_DEFAULT_PASS: bankcore_secret
+      RABBITMQ_DEFAULT_VHOST: bankcore
+    networks:
+      - bankcore
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped

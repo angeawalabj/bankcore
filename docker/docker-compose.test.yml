@@ -1,0 +1,66 @@
+version: '3.9'
+
+# BankCore — Test Compose
+# Runs integration tests against real containers in CI.
+#
+# Usage:
+#   docker-compose -f docker-compose.test.yml up --build --exit-code-from test-runner
+#
+# Exit code reflects test-runner container exit code (0 = pass, 1 = fail).
+
+networks:
+  bankcore-test:
+    driver: bridge
+
+services:
+  account-service:
+    build:
+      context: ../
+      dockerfile: docker/account-service/Dockerfile
+    environment:
+      BANKCORE_ENVIRONMENT: test
+      SERVICE_PORT: "8001"
+    networks: [bankcore-test]
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=3)"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  transaction-service:
+    build:
+      context: ../
+      dockerfile: docker/transaction-service/Dockerfile
+    environment:
+      BANKCORE_ENVIRONMENT: test
+      SERVICE_PORT: "8002"
+      ACCOUNT_SERVICE_URL: "http://account-service:8001"
+    networks: [bankcore-test]
+    depends_on:
+      account-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8002/health', timeout=3)"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+
+  test-runner:
+    image: python:3.12-slim
+    working_dir: /app
+    volumes:
+      - ../:/app
+    environment:
+      ACCOUNT_SERVICE_URL: "http://account-service:8001"
+      TRANSACTION_SERVICE_URL: "http://transaction-service:8002"
+    networks: [bankcore-test]
+    depends_on:
+      transaction-service:
+        condition: service_healthy
+    command: >
+      sh -c "pip install pytest --quiet &&
+             PYTHONPATH=src python -m pytest tests/ -v --tb=short"
