@@ -1,0 +1,43 @@
+# AccountService — .dockerignore
+# Excludes files that don't belong in the production image
+
+# Tests and docs
+tests/
+docs/
+*.md
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Docker files themselves
+docker/
+
+# Coverage and CI
+.coverage
+htmlcov/
+.pytest_cache/
+.github/
+
+# Local config overrides
+*.env
+.env.local
