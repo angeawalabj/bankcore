@@ -22,11 +22,18 @@ Design:
   - Context manager protocol: __enter__ / __exit__
 
 Connection to Day 13 (Schema):
-  The SQLite UnitOfWork uses BEGIN/COMMIT/ROLLBACK at the connection level,
-  making the atomicity a database guarantee, not just an application convention.
+  For SQLiteAccountRepository, commit() brackets every save() in this
+  batch inside begin_transaction()/commit() (or rollback() on failure),
+  so the database only ever sees all writes or none — a real SQLite
+  transaction boundary, not just an application-level promise. For
+  InMemoryAccountRepository, find() hands out a deep copy rather than
+  the live stored object: mutating it never touches the repository, so
+  rollback() (which just discards the copy) genuinely reverts nothing
+  having happened, instead of leaving an already-mutated object behind.
 """
 
 from __future__ import annotations
+import copy
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -61,12 +68,18 @@ class UnitOfWork:
         """
         Load an account and register it for change tracking.
         Returns the same object instance on repeated calls (identity map).
+
+        Returns a deep copy of the repository's account, not the live
+        stored object: callers can freely mutate it (withdraw/deposit)
+        without touching the repository until commit(). rollback() then
+        just has to discard the copy — no mutation ever reached storage.
         """
         if account_id in self._loaded:
             return self._loaded[account_id]
 
         account = self._repo.find_by_id(account_id)
         if account is not None:
+            account = copy.deepcopy(account)
             self._loaded[account_id] = account
         return account
 
@@ -84,13 +97,27 @@ class UnitOfWork:
 
     def commit(self) -> None:
         """
-        Persist all dirty accounts.
-        For SQLite repositories, this also commits the database transaction.
-        """
-        for account in self._dirty.values():
-            self._repo.save(account)
+        Persist all dirty accounts atomically.
 
-        # If repository supports explicit commit (SQLite), call it
+        For SQLite repositories, begin_transaction() suspends the
+        repository's normal per-save autocommit, so every save() below
+        lands in one open transaction. If any save() raises, rollback()
+        performs a real SQLite ROLLBACK — undoing prior saves in this
+        batch too — and the exception propagates. Only if every save()
+        succeeds does commit() perform the real SQLite COMMIT. Repositories
+        without transaction support (e.g. in-memory) just skip these hooks.
+        """
+        if hasattr(self._repo, "begin_transaction"):
+            self._repo.begin_transaction()
+
+        try:
+            for account in self._dirty.values():
+                self._repo.save(account)
+        except Exception:
+            if hasattr(self._repo, "rollback"):
+                self._repo.rollback()
+            raise
+
         if hasattr(self._repo, "commit"):
             self._repo.commit()
 
@@ -100,7 +127,10 @@ class UnitOfWork:
     def rollback(self) -> None:
         """
         Discard all pending changes.
-        Modified accounts in memory revert to their loaded state.
+
+        Loaded accounts are deep copies (see find()), so clearing them
+        here is enough: nothing mutated on these copies ever reached the
+        repository, so there is nothing in storage to undo.
         """
         self._dirty.clear()
         self._loaded.clear()

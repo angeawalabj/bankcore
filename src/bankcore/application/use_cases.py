@@ -29,6 +29,7 @@ from bankcore.application.commands import (
     UseCaseResult,
 )
 from bankcore.application.ports import AccountRepositoryPort
+from bankcore.application.unit_of_work import UnitOfWork
 from bankcore.interfaces import InterestBearing
 
 if TYPE_CHECKING:
@@ -109,9 +110,13 @@ class TransferUseCase:
                 code="TRANSFER_REJECTED",
             )
 
-        # Step 3: persist updated accounts
-        self._registry.save(from_account)
-        self._registry.save(to_account)
+        # Step 3: persist both updated accounts atomically (Day 14: Unit
+        # of Work) — one transaction, not two independent saves, so a
+        # failure partway through can't leave a debit without its credit.
+        uow = UnitOfWork(self._registry)
+        uow.register_dirty(from_account)
+        uow.register_dirty(to_account)
+        uow.commit()
 
         return UseCaseResult.ok(
             from_account_id=command.from_account_id,

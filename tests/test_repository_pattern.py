@@ -348,11 +348,10 @@ class TestUnitOfWork:
 
     def test_rollback_clears_dirty_set(self, mem_repo):
         """
-        UnitOfWork.rollback() clears the dirty set so nothing is committed.
-        Note: in-memory repos share object references, so the account object
-        itself is mutated. True isolation requires SQLite-level transactions
-        (BEGIN/ROLLBACK) which the SQLite-backed UoW provides in production.
-        This test verifies the UoW contract: after rollback, dirty_count == 0.
+        UnitOfWork.find() hands out a deep copy of the stored account, so
+        mutating it (deposit/withdraw) never reaches the repository.
+        rollback() just discards the copy — the repository is left exactly
+        as it was, with real isolation even for InMemoryAccountRepository.
         """
         alice = AccountFactory.create("current", "Alice", 1_000.0)
         mem_repo.save(alice)
@@ -368,6 +367,66 @@ class TestUnitOfWork:
         # After rollback, nothing is pending
         assert uow.dirty_count == 0
         assert uow.loaded_count == 0
+        # ...and the repository itself was never mutated.
+        assert mem_repo.find_by_id(alice.account_id).balance == 1_000.0
+
+    def test_find_returns_a_copy_not_the_live_stored_object(self, mem_repo):
+        """
+        Mutating the object returned by find() must not mutate what's in
+        the repository until commit() — otherwise UnitOfWork can't offer
+        any rollback guarantee at all for in-memory storage.
+        """
+        alice = AccountFactory.create("current", "Alice", 1_000.0)
+        mem_repo.save(alice)
+
+        uow = UnitOfWork(mem_repo)
+        loaded = uow.find(alice.account_id)
+        loaded.deposit(500.0)
+
+        assert mem_repo.find_by_id(alice.account_id).balance == 1_000.0
+
+    def test_sqlite_commit_persists_both_accounts_in_one_transaction(self, sqlite_repo):
+        alice = AccountFactory.create("current", "Alice", 1_000.0)
+        bob   = AccountFactory.create("savings", "Bob",   500.0)
+        sqlite_repo.save(alice)
+        sqlite_repo.save(bob)
+
+        with UnitOfWork(sqlite_repo) as uow:
+            op = TransferOperation(uow)
+            result = op.execute(alice.account_id, bob.account_id, 300.0)
+            uow.commit()
+
+        assert result["success"] is True
+        assert sqlite_repo.find_by_id(alice.account_id).balance == 700.0
+        assert sqlite_repo.find_by_id(bob.account_id).balance   == 800.0
+
+    def test_sqlite_commit_failure_rolls_back_prior_saves_in_the_batch(self, sqlite_repo):
+        """
+        Real atomicity: if the second save() in a commit() batch fails,
+        the first save() must not survive either — a genuine SQLite
+        ROLLBACK, not just an application-level dirty-set reset.
+        """
+        alice = AccountFactory.create("current", "Alice", 1_000.0)
+        sqlite_repo.save(alice)
+
+        uow = UnitOfWork(sqlite_repo)
+        loaded_alice = uow.find(alice.account_id)
+        loaded_alice.deposit(500.0)
+        uow.register_dirty(loaded_alice)
+
+        class ExplodingAccount:
+            account_id = "GHOST"
+
+            def __getattr__(self, name):
+                raise RuntimeError("boom — simulated failure on second save")
+
+        uow.register_dirty(ExplodingAccount())
+
+        with pytest.raises(RuntimeError):
+            uow.commit()
+
+        # Alice's deposit must NOT have survived: the whole batch rolled back.
+        assert sqlite_repo.find_by_id(alice.account_id).balance == 1_000.0
 
     def test_context_manager_commits_on_success(self, mem_repo):
         alice = AccountFactory.create("current", "Alice", 1_000.0)

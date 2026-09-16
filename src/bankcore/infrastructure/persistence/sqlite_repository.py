@@ -46,6 +46,7 @@ class SQLiteAccountRepository(AccountRepositoryPort):
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
+        self._autocommit = True
         create_schema(conn)
 
     # ------------------------------------------------------------------
@@ -81,7 +82,34 @@ class SQLiteAccountRepository(AccountRepositoryPort):
 
         # Sync transaction history
         self._sync_transactions(account)
+        if self._autocommit:
+            self._conn.commit()
+
+    # ------------------------------------------------------------------
+    # Explicit transaction control (Day 14: Unit of Work)
+    # ------------------------------------------------------------------
+
+    def begin_transaction(self) -> None:
+        """
+        Suspend per-save autocommit: subsequent save() calls write to
+        the open SQLite transaction but don't commit it. Used by
+        UnitOfWork to make a batch of saves atomic.
+        """
+        self._autocommit = False
+
+    def commit(self) -> None:
+        """Commit the open transaction and return to autocommit mode."""
         self._conn.commit()
+        self._autocommit = True
+
+    def rollback(self) -> None:
+        """
+        Roll back the open transaction — a real SQLite ROLLBACK that
+        undoes every save() since begin_transaction() — and return to
+        autocommit mode.
+        """
+        self._conn.rollback()
+        self._autocommit = True
 
     def find_by_id(self, account_id: str) -> Optional[object]:
         row = self._conn.execute(
