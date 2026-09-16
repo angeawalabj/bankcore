@@ -1,6 +1,7 @@
 # BankCore — Dependencies
-# Day 01: no external dependencies (stdlib only)
-# Dependencies will be added as the system grows
+# Le système applicatif lui-même reste stdlib uniquement (voir ADR-001).
+# Ces dépendances ne servent qu'aux tests et à l'outillage Docker (J19).
 
 pytest>=7.0
 pytest-cov>=4.0
+pyyaml>=6.0
