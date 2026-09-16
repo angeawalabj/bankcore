@@ -1,7 +1,12 @@
 version: '3.9'
 
 # BankCore — Docker Compose
-# Orchestrates AccountService + TransactionService + Redis + RabbitMQ
+# Runs AccountService + TransactionService, the two real application
+# containers. Redis and RabbitMQ are also started below, but only as a
+# reference topology: per ADR-001 (stdlib only), the application never
+# adds a redis-py/pika dependency, so neither service ever talks to
+# them. Caching (J17) and messaging (J18) run in-process instead
+# (InMemoryCache, MessageBus) — see docs/jour-17 and docs/jour-18.
 #
 # Usage:
 #   docker-compose up --build           # start all services
@@ -12,7 +17,8 @@ version: '3.9'
 # After startup:
 #   AccountService:     http://localhost:8001/health
 #   TransactionService: http://localhost:8002/health
-#   RabbitMQ UI:        http://localhost:15672  (guest/guest)
+#   RabbitMQ UI:        http://localhost:15672  (guest/guest) — management
+#                       UI only; no BankCore service publishes to it.
 
 networks:
   bankcore:
@@ -103,8 +109,10 @@ services:
         max-file: "3"
 
   # ──────────────────────────────────────────────────────────────────────
-  # Redis — Cache backend (Day 17)
-  # TransactionService reads account profiles from Redis via CachingServiceClient
+  # Redis — reference topology only (Day 17)
+  # Not wired into any BankCore service. CachingServiceClient uses
+  # InMemoryCache in every environment (ADR-001: no redis-py dependency).
+  # This container exists to show where a real cache would sit.
   # ──────────────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
@@ -128,8 +136,10 @@ services:
     restart: unless-stopped
 
   # ──────────────────────────────────────────────────────────────────────
-  # RabbitMQ — Message Queue (Day 18)
-  # TransactionService publishes events; consumers subscribe
+  # RabbitMQ — reference topology only (Day 18)
+  # Not wired into any BankCore service. MessageBus runs in-process in
+  # every environment (ADR-001: no pika/kafka-python dependency). This
+  # container exists to show where a real broker would sit.
   # ──────────────────────────────────────────────────────────────────────
   rabbitmq:
     image: rabbitmq:3-management-alpine

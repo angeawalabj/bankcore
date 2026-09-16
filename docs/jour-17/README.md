@@ -87,12 +87,16 @@ class CacheBackend(Protocol):
     def clear(self) -> None: ...
 ```
 
-Implémentations :
-- `InMemoryCache` — pour les tests et le développement (J17)
-- `RedisCache` — pour la production (interface identique)
+Implémentation livrée :
+- `InMemoryCache` — seule implémentation réelle du projet (J17)
 
-Le `CachingServiceClient` reçoit un `CacheBackend` par injection (DIP, J10).
-Passer de tests à production = passer `RedisCache()` au lieu de `InMemoryCache()`.
+`RedisCache` n'existe pas dans ce dépôt : ADR-001 exclut les dépendances
+tierces de l'application elle-même (`redis-py` en ferait partie). Le
+`CacheBackend` Protocol est conçu pour qu'on puisse écrire ce backend sans
+toucher au `CachingServiceClient` (DIP, J10) — c'est le point du pattern —
+mais l'écrire reste un exercice, pas une livraison de ce challenge. Le
+container `redis` du docker-compose (J19) tourne à côté à titre d'exemple
+de topologie ; l'application ne s'y connecte pas.
 
 ---
 

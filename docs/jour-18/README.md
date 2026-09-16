@@ -82,10 +82,16 @@ class MessageBus:
     def subscribe_pattern(self, pattern: str, consumer: Consumer) -> None: ...
 ```
 
-Implémentations :
-- `InMemoryMessageBus` — synchrone in-process (J18, tests)
-- `AsyncMessageBus` — file d'attente asynchrone with threading (J18)
-- `RabbitMQBus` / `KafkaBus` — production (J19+)
+Implémentation livrée : une seule classe, `MessageBus`, avec un mode
+synchrone (par défaut) et un mode asynchrone (`async_dispatch=True`,
+dispatch par threads) — pas deux classes séparées.
+
+`RabbitMQBus` / `KafkaBus` n'existent pas dans ce dépôt : ADR-001 exclut
+les dépendances tierces (`pika`, `kafka-python`...) de l'application
+elle-même. Le container `rabbitmq` du docker-compose (J19) tourne à côté
+à titre d'exemple de topologie ; l'application ne le contacte jamais —
+c'est `MessageBus` qui joue ce rôle en mémoire, y compris en production
+telle que ce challenge la définit (ADR-001).
 
 ---
 

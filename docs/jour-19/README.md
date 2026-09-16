@@ -26,8 +26,8 @@ bankcore/
 
 **AccountService** → Port 8001
 **TransactionService** → Port 8002
-**Redis** → Port 6379 (cache J17)
-**RabbitMQ** → Port 5672 (message queue J18)
+**Redis** → Port 6379 (exemple de topologie — l'app ne s'y connecte pas, voir J17)
+**RabbitMQ** → Port 5672 (exemple de topologie — l'app ne s'y connecte pas, voir J18)
 
 ---
 
@@ -127,8 +127,11 @@ Fichiers Docker prêts à l'emploi :
 ## Connexion avec les jours précédents et suivants
 
 - **J16 (Microservices)** : chaque service devient un container
-- **J17 (Cache)** : Redis en container, `InMemoryCache` → `RedisCache`
-- **J18 (Message Queue)** : RabbitMQ en container
+- **J17 (Cache)** : le container `redis` illustre où un vrai cache
+  externe s'insérerait ; l'app tourne avec `InMemoryCache` (ADR-001,
+  pas de `redis-py`)
+- **J18 (Message Queue)** : idem pour `rabbitmq` — `MessageBus`
+  reste en mémoire, le broker n'est pas contacté
 - **J20 (Monitoring)** : Prometheus + Grafana ajoutés au compose
 
 ---
