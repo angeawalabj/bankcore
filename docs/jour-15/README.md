@@ -49,9 +49,8 @@ BankCore initie l'interaction.
 **Avant J15 :** un développeur qui veut tester BankCore doit instancier
 `BankContainer`, câbler les repos, instancier les Use Cases...
 
-**Après J15 :** il appelle `BankCLI` ou `TestDriver` — des Adapters
-primaires qui s'occupent de l'orchestration. Le test lui-même
-est aussi simple que :
+**Après J15 :** il appelle `TestDriver` — un Adapter primaire qui
+s'occupe de l'orchestration. Le test lui-même est aussi simple que :
 
 ```python
 driver = TestDriver.create()
@@ -67,8 +66,7 @@ assert driver.balance("Alice") == 500.0
 ```mermaid
 graph LR
     subgraph "Adapters Primaires (Driving)"
-        CLI["BankCLI"]
-        API["REST API Handler"]
+        API["BankAPIHandler"]
         TEST["TestDriver"]
         SCHED["InterestScheduler"]
     end
@@ -84,7 +82,6 @@ graph LR
         STORE["EventStore"]
     end
 
-    CLI   --> APP
     API   --> APP
     TEST  --> APP
     SCHED --> APP
@@ -98,12 +95,15 @@ graph LR
 
 ---
 
-## Les quatre Adapters primaires de J15
+## Les trois Adapters primaires de J15
 
-1. **BankCLI** — interface texte interactive, lit stdin, écrit stdout
-2. **TestDriver** — API fluente pour les tests d'intégration sans HTTP
-3. **InterestScheduler** — applique les intérêts à tous les comptes éligibles
-4. **BankAPIHandler** — simule un handler HTTP (préfigure une vraie API REST)
+1. **TestDriver** — API fluente pour les tests d'intégration sans HTTP
+2. **InterestScheduler** — applique les intérêts à tous les comptes éligibles
+3. **BankAPIHandler** — simule un handler HTTP (préfigure une vraie API REST)
+
+Pas de `BankCLI` : une interface texte interactive n'a pas été construite
+ce jour-là — seuls les trois adapters ci-dessus existent dans
+`presentation/`.
 
 ---
 
@@ -128,7 +128,7 @@ Si un Adapter a un `if` lié au métier, c'est une violation.
 
 ## Complexité aujourd'hui
 
-- 4 nouveaux fichiers dans `presentation/` :
-  `cli.py`, `test_driver.py`, `scheduler.py`, `api_handler.py`
+- 3 nouveaux fichiers dans `presentation/` :
+  `test_driver.py`, `scheduler.py`, `api_handler.py`
 - 524 tests existants : **tous verts sans modification**
 - Nouveaux tests : `test_hexagonal_architecture.py`
