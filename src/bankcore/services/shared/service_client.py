@@ -11,6 +11,11 @@ in ServiceRegistry.
 ServiceClient: typed client for calling another microservice.
 ServiceRegistry: maps service names to their clients (service discovery).
 
+Every call is auto-traced (Day 20): each _call() opens a Span on the
+client's own Tracer, tagged with method/path/status, so a caller can
+inspect client.tracer.recent_traces() to see exactly what happened
+without touching business logic.
+
 Clean Architecture rule:
     - AccountService NEVER imports TransactionService
     - TransactionService calls AccountService via ServiceClient
@@ -22,6 +27,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 from datetime import datetime
+
+from bankcore.infrastructure.monitoring.tracer import Tracer
 
 
 @dataclass
@@ -73,6 +80,7 @@ class ServiceClient:
         self._handler = handler
         self._call_count = 0
         self._call_log: list[dict] = []
+        self._tracer  = Tracer(service_name)
 
     def get(self, path: str, params: dict = None) -> ServiceResponse:
         return self._call("GET", path, params=params or {})
@@ -96,9 +104,19 @@ class ServiceClient:
         import time
         req   = ServiceRequest(method=method, path=path,
                                body=body or {}, params=params or {})
-        start = time.perf_counter()
-        resp  = self._handler(req)
-        resp.latency_ms = (time.perf_counter() - start) * 1000
+
+        with self._tracer.start_span(f"{method} {self._name}{path}") as span:
+            span.set_tag("service", self._name)
+            span.set_tag("http.method", method)
+            span.set_tag("http.path", path)
+
+            start = time.perf_counter()
+            resp  = self._handler(req)
+            resp.latency_ms = (time.perf_counter() - start) * 1000
+
+            span.set_tag("http.status", resp.status_code)
+            if not resp.ok:
+                span.set_error(f"HTTP {resp.status_code}")
 
         self._call_count += 1
         self._call_log.append({
@@ -117,6 +135,11 @@ class ServiceClient:
     @property
     def service_name(self) -> str:
         return self._name
+
+    @property
+    def tracer(self) -> Tracer:
+        """The Tracer recording every call made through this client."""
+        return self._tracer
 
     def get_call_log(self) -> list[dict]:
         return list(self._call_log)

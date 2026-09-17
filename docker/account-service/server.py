@@ -29,10 +29,17 @@ sys.path.insert(0, "/app")
 
 from bankcore.services.account_service.service import AccountService
 from bankcore.services.shared.service_client import ServiceRequest
+from bankcore.infrastructure.monitoring.health_check import (
+    HealthChecker, RepositoryHealthCheck,
+)
 
 
 # Global service instance
 _account_service = AccountService()
+_health_checker  = (
+    HealthChecker("account-service")
+    .add_check("database", RepositoryHealthCheck(_account_service.repository))
+)
 _server = None
 
 
@@ -52,9 +59,13 @@ class AccountServiceHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/ready":
-            # Readiness: verify the repository is accessible
-            count = _account_service.repository.count()
-            self._respond(200, {"status": "ready", "accounts": count})
+            # Readiness (Day 20): composite HealthChecker, not an ad-hoc
+            # inline check — same class exercised by test_monitoring.py.
+            # report["status"] is "healthy"/"degraded"/"unhealthy"; the
+            # HTTP status code is what Docker's healthcheck actually acts on.
+            report = _health_checker.check()
+            status_code = 200 if report.is_healthy else 503
+            self._respond(status_code, report.to_dict())
             return
 
         # Delegate to AccountService router

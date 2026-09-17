@@ -40,8 +40,8 @@ C4Container
 
     Container(account_svc, "AccountService", "Python 3.12\nDocker :8001", "Gestion des comptes:\ncréation, solde, profil")
     Container(tx_svc, "TransactionService", "Python 3.12\nDocker :8002", "Traitement des transactions:\ndépôt, retrait, virement")
-    Container(redis, "Cache (Redis)", "Redis 7\nDocker :6379", "Cache profils comptes\nTTL 60s, LRU 256MB")
-    Container(rabbit, "Message Queue (RabbitMQ)", "RabbitMQ 3\nDocker :5672", "Pub/Sub events:\ntransaction.*, account.*")
+    Container(redis, "Cache (Redis)", "Redis 7\nDocker :6379", "Référence uniquement (ADR-001)\nnon connecté — InMemoryCache tient ce rôle")
+    Container(rabbit, "Message Queue (RabbitMQ)", "RabbitMQ 3\nDocker :5672", "Référence uniquement (ADR-001)\nnon connecté — MessageBus tient ce rôle")
 
     ContainerDb(account_db, "AccountDB", "SQLite", "Comptes, propriétaires,\nhistorique transactions")
     ContainerDb(tx_log, "TransactionLog", "In-Memory\n(SQLite en prod)", "Journal des transactions\npar service")
@@ -49,10 +49,7 @@ C4Container
 
     Rel(user, account_svc, "HTTP REST :8001")
     Rel(user, tx_svc, "HTTP REST :8002")
-    Rel(tx_svc, account_svc, "HTTP GET/PATCH\n(ServiceClient + CircuitBreaker)")
-    Rel(tx_svc, redis, "Cache profils")
-    Rel(tx_svc, rabbit, "Publish events")
-    Rel(rabbit, audit_db, "AuditConsumer")
+    Rel(tx_svc, account_svc, "HTTP GET/PATCH\n(ServiceClient + CircuitBreaker, auto-tracé)")
     Rel(account_svc, account_db, "SQLite")
     Rel(tx_svc, tx_log, "Append-only")
 ```
@@ -128,6 +125,15 @@ d'agrégat depuis l'EventStore.
 `EnvSecretsProvider` est production-safe pour un démarrage simple,
 mais une rotation de clé HMAC en production nécessite Vault ou équivalent.
 
+**6. Observabilité : pas de scraping, pas de propagation inter-process**
+`MetricsRegistry`/`Tracer`/`HealthChecker` (J20) sont réels mais internes
+à chaque process : rien n'expose `/metrics` en HTTP (pas de scraping
+Prometheus possible tel quel), et un `Trace` ne franchit pas la frontière
+réseau entre `account-service` et `transaction-service` — chaque
+`ServiceClient` ne voit que ses propres appels, pas l'arbre complet
+d'une requête. Voir docs/jour-20 pour le détail de ce qui est câblé et
+de ce qui ne l'est pas.
+
 ---
 
 ### Ce qui EST production-ready
@@ -146,8 +152,11 @@ se récupèrent automatiquement.
 **Sécurité :** RBAC + Audit Log immuable + Secrets séparés.
 Chaque opération est autorisée, tracée, et non-répudiable.
 
-**Observabilité :** Métriques + Tracing distribué + Health Checks.
-Un opérateur peut diagnostiquer n'importe quelle dégradation en production.
+**Observabilité :** `MetricsRegistry` compte réellement chaque virement/
+dépôt/retrait (branché dans les Use Cases), `ServiceClient` trace
+réellement chaque appel inter-service, `HealthChecker` vérifie réellement
+la base d'AccountService sur `/ready`. Ce qui manque pour une vraie prod :
+un point 6 ci-dessous.
 
 ---
 

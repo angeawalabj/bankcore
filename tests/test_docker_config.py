@@ -233,6 +233,15 @@ class TestServerFiles:
         content = read_file(os.path.join(ACCOUNT_DIR, "server.py"))
         assert "/ready" in content
 
+    def test_account_server_ready_route_uses_real_health_checker(self):
+        """
+        Day 20: /ready must use the tested HealthChecker/RepositoryHealthCheck
+        classes, not an ad-hoc inline check that bypasses them.
+        """
+        content = read_file(os.path.join(ACCOUNT_DIR, "server.py"))
+        assert "HealthChecker" in content
+        assert "RepositoryHealthCheck" in content
+
     def test_account_server_handles_sigterm(self):
         content = read_file(os.path.join(ACCOUNT_DIR, "server.py"))
         assert "SIGTERM" in content

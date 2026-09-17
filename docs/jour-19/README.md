@@ -132,7 +132,10 @@ Fichiers Docker prêts à l'emploi :
   pas de `redis-py`)
 - **J18 (Message Queue)** : idem pour `rabbitmq` — `MessageBus`
   reste en mémoire, le broker n'est pas contacté
-- **J20 (Monitoring)** : Prometheus + Grafana ajoutés au compose
+- **J20 (Monitoring)** : `MetricsRegistry`/`Tracer`/`HealthChecker`
+  tournent dans les processus `account-service`/`transaction-service`
+  eux-mêmes (voir docs/jour-20) — pas de Prometheus ni de Grafana dans
+  ce compose
 
 ---
 

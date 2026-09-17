@@ -143,6 +143,28 @@ class TestServiceClient:
         assert client.call_count == 0
         assert client.get_call_log() == []
 
+    def test_call_is_auto_traced(self):
+        """Day 20: every _call() opens a real Span on the client's Tracer."""
+        def handler(req): return ServiceResponse(200, {"ok": True})
+        client = ServiceClient("test-service", handler)
+        client.get("/accounts/ACC-001")
+
+        traces = client.tracer.all_traces()
+        assert len(traces) == 1
+        span = traces[0].root_span
+        assert span.operation == "GET test-service/accounts/ACC-001"
+        assert span.tags["http.status"] == 200
+        assert span.error is False
+        assert span.is_finished is True
+
+    def test_failed_call_marks_span_as_error(self):
+        def handler(req): return ServiceResponse(503, {"error": "unavailable"})
+        client = ServiceClient("test-service", handler)
+        client.get("/accounts/ACC-001")
+
+        span = client.tracer.all_traces()[0].root_span
+        assert span.error is True
+
 
 # ---------------------------------------------------------------------------
 # ServiceRegistry

@@ -50,27 +50,39 @@ Trace: trace_id=abc123  duration=234ms
 ## Architecture du monitoring BankCore
 
 ```
-AccountService    ─── metrics ──> MetricsCollector
-TransactionService ─── traces ──> Tracer
-MessageBus        ─── events ──> EventMonitor
+Use Cases (TransferUseCase, DepositUseCase, WithdrawUseCase)
                                        │
-                                       ▼
-                               MonitoringDashboard
-                               (summary, alerts, health)
+                                       ▼ counter().inc() / histogram().observe()
+                               MetricsRegistry (Singleton, J01)
+                                       │
+ServiceClient._call() ──── span ────> Tracer (une instance par client)
+                                       │
+RepositoryHealthCheck, CacheHealthCheck,
+MessageBusHealthCheck, MetricsHealthCheck ──> HealthChecker (composite)
 ```
+
+Ce sont les trois classes réellement livrées : `MetricsRegistry`, `Tracer`,
+`HealthChecker`. Il n'existe pas de tableau de bord centralisé qui les
+agrège (pas de `MonitoringDashboard`) — chacune s'interroge séparément
+(`metrics.snapshot()`, `tracer.recent_traces()`, `health_checker.check()`).
 
 ---
 
-## Trace Context Propagation
+## Trace Context Propagation — ce qui est réel, ce qui ne l'est pas
 
-Quand TransactionService appelle AccountService,
-il passe un `trace_id` dans le header HTTP :
-```
-X-Trace-ID: abc123
-X-Span-ID:  def456
-```
-AccountService crée un span enfant avec ces IDs.
-On peut ainsi reconstituer l'arbre complet d'une requête.
+**Réel :** chaque `ServiceClient` trace automatiquement ses propres appels
+— `client.tracer.recent_traces()` montre chaque `GET`/`POST` émis par CE
+client, avec méthode, chemin, statut et latence (voir `_call()` dans
+`service_client.py`).
+
+**Pas implémenté :** la propagation du contexte *entre* processus.
+`ServiceRequest.headers` existe mais rien n'y écrit `X-Trace-ID`/`X-Span-ID`,
+et le serveur HTTP réel (`docker/account-service/server.py`) ne les lit
+jamais pour rattacher son propre traitement au trace de l'appelant. En
+l'état, un `Trace` reste local au processus qui l'a créé — reconstituer
+l'arbre complet `TransactionService → AccountService` à travers le réseau
+demanderait que chaque service ait aussi son propre `Tracer` et lise ces
+en-têtes, ce qui n'a pas été construit.
 
 ---
 
@@ -91,22 +103,34 @@ On peut ainsi reconstituer l'arbre complet d'une requête.
 
 ## Health Check étendu
 
+`/health` reste un stub `{"status": "ok"}` volontairement bête : c'est la
+sonde de *liveness* (le process tourne-t-il ?), et une liveness probe qui
+vérifie des dépendances redémarre le container à chaque ralentissement de
+la base — l'anti-pattern que `health_check.py` documente lui-même.
+`/ready` (readiness) est le bon endroit pour un vrai check, et c'est là
+qu'`AccountService` branche `HealthChecker` :
+
 ```json
-GET /health
+GET /ready   (HTTP 200 — HTTP 503 si "status" != "healthy")
 {
+  "service": "account-service",
   "status": "healthy",
-  "uptime_seconds": 3600,
+  "uptime_s": 3600.0,
+  "checked_at": "...",
   "checks": {
-    "database":    {"status": "ok", "latency_ms": 1.2},
-    "cache":       {"status": "ok", "hit_rate": 0.73},
-    "message_bus": {"status": "ok", "dlq_depth": 0}
-  },
-  "metrics": {
-    "requests_total": 15234,
-    "error_rate": 0.002
+    "database": {"status": "ok", "latency_ms": 1.2,
+                  "message": "Repository accessible. 42 accounts."}
   }
 }
 ```
+
+`CacheHealthCheck` et `MessageBusHealthCheck` existent et sont testés
+(`test_monitoring.py`), mais ne sont branchés nulle part : ni le cache ni
+le message bus ne sont réellement utilisés par les microservices Docker
+(voir J17/J18 — `InMemoryCache`/`MessageBus` tournent en mémoire dans le
+process qui les instancie, pas partagés entre `account-service` et
+`transaction-service`). Les câbler exigerait d'abord de câbler le cache et
+le bus eux-mêmes dans ces services, ce qui est hors périmètre de J20.
 
 ---
 

@@ -32,6 +32,7 @@ from bankcore.application.use_cases import (
     CreateAccountUseCase, ApplyInterestUseCase,
     BankApplicationService,
 )
+from bankcore.infrastructure.monitoring.metrics import MetricsRegistry
 
 
 @pytest.fixture(autouse=True)
@@ -41,12 +42,14 @@ def reset_state():
     AccountTypeRegistry._reset()
     AccountTypeRegistry._register_defaults()
     AccountFactory._reset_registry()
+    MetricsRegistry._reset()
     yield
     ConfigManager._reset()
     AlertSystem._reset()
     AccountTypeRegistry._reset()
     AccountTypeRegistry._register_defaults()
     AccountFactory._reset_registry()
+    MetricsRegistry._reset()
 
 
 @pytest.fixture
@@ -224,6 +227,13 @@ class TestDepositUseCase:
         info = app_service.get_account(alice)
         assert info["balance"] == 2_200.0   # initial 2000 + 200
 
+    def test_successful_deposit_increments_metric(self, app_service, alice):
+        """Day 20: DepositUseCase reports to the real MetricsRegistry."""
+        before = MetricsRegistry.get_instance().counter("deposits_total").value
+        app_service.deposit(DepositCommand(alice, 50.0, "sys"))
+        after = MetricsRegistry.get_instance().counter("deposits_total").value
+        assert after == before + 1
+
 
 # ---------------------------------------------------------------------------
 # WithdrawUseCase
@@ -253,6 +263,13 @@ class TestWithdrawUseCase:
         app_service.withdraw(WithdrawCommand(alice, 100.0, "atm"))
         info = app_service.get_account(alice)
         assert info["balance"] == 1_900.0
+
+    def test_successful_withdrawal_increments_metric(self, app_service, alice):
+        """Day 20: WithdrawUseCase reports to the real MetricsRegistry."""
+        before = MetricsRegistry.get_instance().counter("withdrawals_total").value
+        app_service.withdraw(WithdrawCommand(alice, 50.0, "atm"))
+        after = MetricsRegistry.get_instance().counter("withdrawals_total").value
+        assert after == before + 1
 
 
 # ---------------------------------------------------------------------------
@@ -292,6 +309,28 @@ class TestTransferUseCase:
         bob_info   = app_service.get_account(bob)
         assert alice_info["balance"] == 1_700.0
         assert bob_info["balance"]   == 1_300.0
+
+    def test_successful_transfer_records_real_metrics(self, app_service, alice, bob):
+        """
+        Day 20: TransferUseCase reports to the real MetricsRegistry —
+        not a dashboard fed by unrelated unit tests, the same counters
+        the production transfer path increments.
+        """
+        metrics = MetricsRegistry.get_instance()
+        app_service.transfer(TransferCommand(alice, bob, 300.0, "user"))
+
+        assert metrics.counter("transfers_total").value == 1
+        assert metrics.counter("transfers_failed_total").value == 0
+        assert metrics.histogram("transfer_latency_ms").count == 1
+        assert metrics.histogram("transfer_amount_eur").sum == 300.0
+
+    def test_failed_transfer_only_increments_failure_counter(self, app_service, alice, bob):
+        metrics = MetricsRegistry.get_instance()
+        app_service.transfer(TransferCommand(alice, bob, 50_000.0, "user"))
+
+        assert metrics.counter("transfers_total").value == 0
+        assert metrics.counter("transfers_failed_total").value == 1
+        assert metrics.histogram("transfer_amount_eur").count == 0
 
 
 # ---------------------------------------------------------------------------

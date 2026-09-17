@@ -30,6 +30,7 @@ from bankcore.application.commands import (
 )
 from bankcore.application.ports import AccountRepositoryPort
 from bankcore.application.unit_of_work import UnitOfWork
+from bankcore.infrastructure.monitoring.metrics import MetricsRegistry
 from bankcore.interfaces import InterestBearing
 
 if TYPE_CHECKING:
@@ -86,29 +87,28 @@ class TransferUseCase:
         self._registry  = registry
 
     def execute(self, command: TransferCommand) -> UseCaseResult:
+        import time
+        metrics = MetricsRegistry.get_instance()
+        started = time.perf_counter()
+
+        def _fail(reason: str, code: str) -> UseCaseResult:
+            metrics.counter("transfers_failed_total").inc()
+            return UseCaseResult.fail(reason, code=code)
+
         # Step 1: load domain objects
         from_account = self._registry.find_by_id(command.from_account_id)
         to_account   = self._registry.find_by_id(command.to_account_id)
 
         if from_account is None:
-            return UseCaseResult.fail(
-                f"Account {command.from_account_id} not found.",
-                code="ACCOUNT_NOT_FOUND",
-            )
+            return _fail(f"Account {command.from_account_id} not found.", "ACCOUNT_NOT_FOUND")
         if to_account is None:
-            return UseCaseResult.fail(
-                f"Account {command.to_account_id} not found.",
-                code="ACCOUNT_NOT_FOUND",
-            )
+            return _fail(f"Account {command.to_account_id} not found.", "ACCOUNT_NOT_FOUND")
 
         # Step 2: execute via pipeline (Decorator stack from Day 05)
         result = self._pipeline.transfer(from_account, to_account, command.amount)
 
         if not result["success"]:
-            return UseCaseResult.fail(
-                result.get("reason", "Transfer failed."),
-                code="TRANSFER_REJECTED",
-            )
+            return _fail(result.get("reason", "Transfer failed."), "TRANSFER_REJECTED")
 
         # Step 3: persist both updated accounts atomically (Day 14: Unit
         # of Work) — one transaction, not two independent saves, so a
@@ -117,6 +117,12 @@ class TransferUseCase:
         uow.register_dirty(from_account)
         uow.register_dirty(to_account)
         uow.commit()
+
+        # Step 4: observability (Day 20) — only successful transfers count
+        # towards latency/amount distributions; failures already counted above.
+        metrics.counter("transfers_total").inc()
+        metrics.histogram("transfer_latency_ms").observe((time.perf_counter() - started) * 1000)
+        metrics.histogram("transfer_amount_eur").observe(command.amount)
 
         return UseCaseResult.ok(
             from_account_id=command.from_account_id,
@@ -152,6 +158,7 @@ class DepositUseCase:
             )
 
         self._registry.save(account)
+        MetricsRegistry.get_instance().counter("deposits_total").inc()
         return UseCaseResult.ok(
             account_id=command.account_id,
             amount=command.amount,
@@ -184,6 +191,7 @@ class WithdrawUseCase:
             )
 
         self._registry.save(account)
+        MetricsRegistry.get_instance().counter("withdrawals_total").inc()
         return UseCaseResult.ok(
             account_id=command.account_id,
             amount=command.amount,
