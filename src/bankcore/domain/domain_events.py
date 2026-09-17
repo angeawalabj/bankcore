@@ -127,6 +127,24 @@ class InterestApplied(DomainEvent):
 
 
 @dataclass(frozen=True)
+class InterestRateSet(DomainEvent):
+    """
+    An account's interest rate was set or changed (ADR-009).
+
+    Without this event, a rate configured at opening time (e.g. a
+    promotional rate different from the account type's default) was
+    only an in-memory mutation — lost the moment the aggregate was
+    rebuilt from its event stream via from_events(). Recording it as
+    an event makes rate changes survive reconstruction like every
+    other piece of account state.
+    """
+    new_rate: float = 0.0
+
+    def to_dict(self) -> dict:
+        return {**super().to_dict(), "new_rate": f"{self.new_rate * 100:.2f}%"}
+
+
+@dataclass(frozen=True)
 class FeeCharged(DomainEvent):
     """A fee was deducted from an account."""
     fee_amount:    Money = field(default_factory=lambda: Money.zero())

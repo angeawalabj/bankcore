@@ -12,7 +12,7 @@
 | [ADR-006](ADR-003-to-010.md#adr-006) | Orchestration vs Choreography pour la Saga | J23 | ✅ Accepté |
 | [ADR-007](ADR-003-to-010.md#adr-007) | id(consumer) vs consumer.name pour MessageBus | J18 | ✅ Accepté |
 | [ADR-008](ADR-003-to-010.md#adr-008) | CircuitBreakerClient catch-all vs re-raise | J24 | ✅ Accepté |
-| [ADR-009](ADR-003-to-010.md#adr-009) | interest_rate non persisté comme événement | J21 | ⚠️ Dette technique |
+| [ADR-009](ADR-003-to-010.md#adr-009) | interest_rate non persisté comme événement | J21 | ✅ Résolu |
 | [ADR-010](ADR-003-to-010.md#adr-010) | Séparation ConfigManager / SecretsProvider | J28 | ✅ Accepté |
 
 ---

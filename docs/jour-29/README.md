@@ -36,7 +36,7 @@ redécouvrir le problème par un incident.
 | [ADR-006](../adr/ADR-003-to-010.md#adr-006) | Orchestration vs Choreography pour la Saga | J23 | ✅ Accepté |
 | [ADR-007](../adr/ADR-003-to-010.md#adr-007) | id(consumer) vs consumer.name pour MessageBus | J18 | ✅ Accepté |
 | [ADR-008](../adr/ADR-003-to-010.md#adr-008) | CircuitBreakerClient catch-all vs re-raise | J24 | ✅ Accepté |
-| [ADR-009](../adr/ADR-003-to-010.md#adr-009) | interest_rate non persisté comme événement | J21 | ⚠️ Dette technique |
+| [ADR-009](../adr/ADR-003-to-010.md#adr-009) | interest_rate non persisté comme événement | J21 | ✅ Résolu |
 | [ADR-010](../adr/ADR-003-to-010.md#adr-010) | Séparation ConfigManager / SecretsProvider | J28 | ✅ Accepté |
 
 Index complet, format standard (Contexte / Décision / Conséquences /
@@ -51,15 +51,23 @@ les tests d'un jour ne sont jamais modifiés pour accommoder un jour
 suivant, sauf correction de bug. Conséquence directe et mesurable :
 `pytest tests/` passe sans régression depuis J01 jusqu'à J29.
 
-**ADR-009 est différent des neuf autres : c'est une dette technique
-assumée, pas une décision "propre".** `AccountAggregate.apply_interest()`
-a besoin de `_interest_rate`, mais l'événement `AccountOpened` ne le
-transporte pas — la reconstruction depuis l'historique d'événements le
-réinfère du `account_type` plutôt que de le stocker explicitement.
-Ça fonctionne tant que le taux ne change jamais après ouverture du
-compte, ce qui est faux en pratique. L'ADR documente le correctif à
-apporter (un événement `InterestRateSet` explicite) au lieu de prétendre
-que le problème n'existe pas.
+**ADR-009 était différent des neuf autres : une dette technique assumée,
+pas une décision "propre" — et c'est justement ce qu'un ADR doit
+supporter.** `AccountAggregate.apply_interest()` a besoin de
+`_interest_rate`, mais l'événement `AccountOpened` ne le transportait
+pas — la reconstruction depuis l'historique d'événements le réinférait
+du `account_type` plutôt que de le stocker explicitement. Ça
+fonctionnait tant que le taux ne changeait jamais après ouverture du
+compte, ce qui est faux en pratique : un taux promotionnel différent du
+défaut était silencieusement perdu au premier rechargement de
+l'agrégat. L'ADR documentait le correctif à apporter (un événement
+`InterestRateSet` explicite) plutôt que de prétendre que le problème
+n'existait pas — et a depuis été mis à jour pour documenter sa propre
+résolution : `InterestRateSet` existe, `set_interest_rate()` l'enregistre
+au lieu de muter l'état en mémoire, et le cas régressé (taux
+personnalisé perdu au reload) est maintenant couvert par un test dédié.
+Un ADR ne fige pas seulement une décision — il peut suivre le cycle de
+vie complet d'une dette, de son constat honnête à sa résolution.
 
 ---
 

@@ -89,10 +89,12 @@ BankCore a 30 jours de développement. Les tests du Jour 1 passent encore
 au Jour 30 sans modification. Ce n'est pas de la chance —
 c'est le résultat de règles de rétrocompatibilité appliquées systématiquement.
 
-**Gère la dette technique de façon explicite.**
-ADR-009 documente que `interest_rate` n'est pas persisté comme événement de domaine.
-C'est une dette technique. Elle est nommée, documentée, et planifiée pour résolution.
-Ce n'est pas "du code sale ignoré" — c'est un compromis assumé avec une date de résolution.
+**Gère la dette technique de façon explicite — jusqu'à sa résolution.**
+ADR-009 documentait que `interest_rate` n'était pas persisté comme événement
+de domaine. C'était une dette technique nommée, documentée, et planifiée
+pour résolution — pas "du code sale ignoré" mais un compromis assumé avec
+un plan. Elle a depuis été résolue (`InterestRateSet`), et l'ADR documente
+maintenant les deux : le constat honnête du départ, et la correction réelle.
 
 ---
 

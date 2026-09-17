@@ -25,7 +25,7 @@ from bankcore.account_factory import AccountFactory
 from bankcore.domain.value_objects import Money, AccountId
 from bankcore.domain.domain_events import (
     AccountOpened, MoneyDeposited, MoneyWithdrawn,
-    MoneyTransferred, InterestApplied,
+    MoneyTransferred, InterestApplied, InterestRateSet,
 )
 from bankcore.domain.event_sourcing.event_store import (
     InProcessEventStore, StoredEvent, ConcurrencyError,
@@ -341,6 +341,67 @@ class TestAccountAggregateReconstruction:
 
 
 # ---------------------------------------------------------------------------
+# InterestRateSet — ADR-009: custom interest rates survive reconstruction
+# ---------------------------------------------------------------------------
+
+class TestInterestRateReconstruction:
+
+    def test_set_interest_rate_records_an_event(self, bob_id):
+        account = AccountAggregate()
+        account.open(bob_id, "Bob", "savings", 1_000.0)
+        account.set_interest_rate(0.025)
+
+        events = account.pop_pending_events()
+        assert any(isinstance(e, InterestRateSet) for e in events)
+
+    def test_custom_rate_survives_reconstruction(self, store, bob_id):
+        """
+        The regression this fix targets: a promotional rate (0.04) that
+        differs from the savings default (0.025) must not be silently
+        replaced by the default when the aggregate is rebuilt — that
+        was exactly the ADR-009 gap (set_interest_rate() was an in-memory
+        mutation, never persisted as an event).
+        """
+        account = AccountAggregate()
+        account.open(bob_id, "Bob", "savings", 1_000.0)
+        account.set_interest_rate(0.04)   # promotional rate, not the 0.025 default
+        store.append_all(account.pop_pending_events())
+
+        rebuilt = AccountAggregate.from_events(store.get_events(bob_id))
+        assert rebuilt.interest_rate == 0.04
+
+        rebuilt.apply_interest()
+        assert rebuilt.balance == pytest.approx(1_040.0)   # 1000 * 1.04, not 1.025
+
+    def test_rate_change_after_the_fact_also_survives(self, store, bob_id):
+        """A rate changed on an existing account persists across reloads too."""
+        account = AccountAggregate()
+        account.open(bob_id, "Bob", "savings", 1_000.0)
+        account.set_interest_rate(0.025)
+        store.append_all(account.pop_pending_events())
+
+        promoted = AccountAggregate.from_events(store.get_events(bob_id))
+        promoted.set_interest_rate(0.05)
+        store.append_all(promoted.pop_pending_events())
+
+        rebuilt_again = AccountAggregate.from_events(store.get_events(bob_id))
+        assert rebuilt_again.interest_rate == 0.05
+
+    def test_default_rate_still_applies_when_never_set_explicitly(self, store, bob_id):
+        """
+        Backward-compatible fallback: a savings account that never had
+        set_interest_rate() called still gets the type-based default
+        (0.025) from _apply(AccountOpened) — unchanged behaviour.
+        """
+        account = AccountAggregate()
+        account.open(bob_id, "Bob", "savings", 1_000.0)
+        store.append_all(account.pop_pending_events())
+
+        rebuilt = AccountAggregate.from_events(store.get_events(bob_id))
+        assert rebuilt.interest_rate == 0.025
+
+
+# ---------------------------------------------------------------------------
 # AccountProjection
 # ---------------------------------------------------------------------------
 
@@ -460,9 +521,9 @@ class TestEventSourcingFullFlow:
         bob_rebuilt.deposit(500.0, f"Transfer from {alice_id}")
         store.append_all(bob_rebuilt.pop_pending_events())
 
-        # Apply Bob's interest (rate must be set — not stored as event yet)
+        # Apply Bob's interest — rate is restored by from_events() via the
+        # InterestRateSet event recorded above (ADR-009), no re-set needed.
         bob_final = AccountAggregate.from_events(store.get_events(bob_id))
-        bob_final.set_interest_rate(0.025)
         bob_final.apply_interest()
         store.append_all(bob_final.pop_pending_events())
 

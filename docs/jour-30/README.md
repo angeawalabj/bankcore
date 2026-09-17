@@ -116,16 +116,11 @@ Le `MessageBus` J18 est synchrone et in-process. En production :
 `TransactionService` publie sur RabbitMQ, `FraudDetector` consomme
 dans un process séparé. L'interface `Consumer` est identique.
 
-**4. `_interest_rate` non persisté (ADR-009)**
-La dette technique documentée : le taux d'intérêt doit être un événement
-de domaine explicite (`InterestRateSet`) pour survivre aux reconstructions
-d'agrégat depuis l'EventStore.
-
-**5. SecretProvider → HashiCorp Vault ou AWS Secrets Manager**
+**4. SecretProvider → HashiCorp Vault ou AWS Secrets Manager**
 `EnvSecretsProvider` est production-safe pour un démarrage simple,
 mais une rotation de clé HMAC en production nécessite Vault ou équivalent.
 
-**6. Observabilité : pas de scraping, pas de propagation inter-process**
+**5. Observabilité : pas de scraping, pas de propagation inter-process**
 `MetricsRegistry`/`Tracer`/`HealthChecker` (J20) sont réels mais internes
 à chaque process : rien n'expose `/metrics` en HTTP (pas de scraping
 Prometheus possible tel quel), et un `Trace` ne franchit pas la frontière
@@ -156,7 +151,13 @@ Chaque opération est autorisée, tracée, et non-répudiable.
 dépôt/retrait (branché dans les Use Cases), `ServiceClient` trace
 réellement chaque appel inter-service, `HealthChecker` vérifie réellement
 la base d'AccountService sur `/ready`. Ce qui manque pour une vraie prod :
-un point 6 ci-dessous.
+le point 5 ci-dessous.
+
+**Event Sourcing (ADR-009) :** un taux d'intérêt personnalisé (différent
+du défaut du type de compte) survit maintenant à `from_events()` —
+`InterestRateSet` le persiste comme événement de domaine au lieu d'être
+une mutation en mémoire perdue au premier rechargement. Résolu, pas
+seulement documenté comme dette.
 
 ---
 

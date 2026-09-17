@@ -374,7 +374,9 @@ class AccountCommandHandler:
             cmd.account_id, cmd.owner_name, cmd.account_type,
             cmd.initial_deposit,
         )
-        # Set rates after open (they're stored in aggregate config, not events)
+        # set_interest_rate() records InterestRateSet (ADR-009), so a
+        # custom rate survives from_events() even if it differs from
+        # the account type's default.
         if cmd.interest_rate:
             account.set_interest_rate(cmd.interest_rate)
         if cmd.min_balance:
@@ -425,8 +427,9 @@ class AccountCommandHandler:
         account = self._load(cmd.account_id)
         if account is None:
             return CommandResult.fail(f"Account {cmd.account_id} not found.")
-        # Interest rate is not stored in events — derived from account type on rebuild
-        # Already set in _apply(AccountOpened) for savings accounts
+        # Interest rate is restored by from_events() — either the type
+        # default (_apply(AccountOpened)) or a custom rate recorded via
+        # InterestRateSet (ADR-009) when this account was opened.
         account.apply_interest()
         return self._persist(account)
 

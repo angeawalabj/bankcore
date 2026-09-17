@@ -27,7 +27,7 @@ from typing import Optional
 
 from bankcore.domain.domain_events import (
     DomainEvent, AccountOpened, MoneyDeposited, MoneyWithdrawn,
-    MoneyTransferred, InterestApplied, FeeCharged,
+    MoneyTransferred, InterestApplied, FeeCharged, InterestRateSet,
 )
 from bankcore.domain.value_objects import Money, AccountId
 from bankcore.domain.event_sourcing.event_store import InProcessEventStore, StoredEvent
@@ -172,7 +172,8 @@ class AccountAggregate:
             self._owner_name   = event.owner_name
             self._account_type = event.account_type
             self._balance      = event.initial_deposit.amount
-            # Restore default rates by account type
+            # Type-based default, overridden below if an InterestRateSet
+            # event follows (e.g. a custom/promotional rate — ADR-009).
             if event.account_type == "savings":
                 self._interest_rate = 0.025
 
@@ -190,6 +191,9 @@ class AccountAggregate:
 
         elif isinstance(event, FeeCharged):
             self._balance -= event.fee_amount.amount
+
+        elif isinstance(event, InterestRateSet):
+            self._interest_rate = event.new_rate
 
     def _record(self, event: DomainEvent) -> None:
         """Record a new event: apply immediately + add to pending."""
@@ -234,8 +238,20 @@ class AccountAggregate:
     def interest_rate(self) -> float:
         return self._interest_rate
 
-    def set_interest_rate(self, rate: float) -> None:
-        self._interest_rate = rate
+    def set_interest_rate(self, rate: float) -> "AccountAggregate":
+        """
+        Command: set (or change) this account's interest rate.
+
+        Records InterestRateSet (ADR-009) so a custom rate configured
+        at any point in the account's life survives from_events() —
+        not just the type-based default applied in _apply(AccountOpened).
+        """
+        event = InterestRateSet(
+            aggregate_id=AccountId(self._account_id),
+            new_rate=rate,
+        )
+        self._record(event)
+        return self
 
     def set_min_balance(self, min_bal: float) -> None:
         self._min_balance = min_bal
