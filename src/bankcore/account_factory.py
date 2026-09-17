@@ -17,10 +17,8 @@ If config changes (e.g., via env var in production), new accounts
 automatically reflect the updated rules.
 """
 
-from typing import Callable, Optional
-from bankcore.account import Account, CurrentAccount, SavingsAccount, ProAccount
-from bankcore.account_config import AccountConfigResolver
-from bankcore.config_manager import ConfigManager
+from typing import Callable
+from bankcore.account import Account, CurrentAccount
 
 
 # Type alias for creator functions stored in the registry
@@ -39,11 +37,6 @@ class AccountFactory:
     The factory reads limits and fees from ConfigManager (Day 01),
     so production config changes are automatically applied to new accounts.
     """
-
-    # Registry: maps account type strings to creator functions.
-    # Using a dict instead of if/elif means adding a new type
-    # requires zero changes to this class (Open/Closed — Day 07).
-    _creators: dict[str, AccountCreator] = {}
 
     @classmethod
     def create(
@@ -74,8 +67,6 @@ class AccountFactory:
         from bankcore.account_type_registry import AccountTypeRegistry, ConfigProfile
         if not account_type or not account_type.strip():
             raise ValueError("Account type identifier cannot be empty.")
-        cls._creators[account_type] = creator
-        # Also register in AccountTypeRegistry so create() delegates correctly
         AccountTypeRegistry.register(
             name=account_type,
             creator=creator,
@@ -93,53 +84,12 @@ class AccountFactory:
         """
         Reset the registry to default state.
         For testing only — never call in production.
-        Delegates to AccountTypeRegistry (Day 07 — OCP).
+        Delegates entirely to AccountTypeRegistry (Day 07 — OCP), which
+        owns and registers the three built-in account types itself.
         """
         from bankcore.account_type_registry import AccountTypeRegistry
         AccountTypeRegistry._reset()
         AccountTypeRegistry._register_defaults()
-        cls._creators = {}
-        cls._register_defaults()
-
-    @classmethod
-    def _register_defaults(cls) -> None:
-        """Register the three built-in account types.
-        Day 06: uses AccountConfigResolver instead of reading ConfigManager directly.
-        """
-        resolver = AccountConfigResolver()
-
-        def create_current(owner: str, deposit: float) -> CurrentAccount:
-            return CurrentAccount(
-                owner_name=owner,
-                initial_deposit=deposit,
-                daily_limit=resolver.resolve_daily_limit("current"),
-            )
-
-        def create_savings(owner: str, deposit: float) -> SavingsAccount:
-            return SavingsAccount(
-                owner_name=owner,
-                initial_deposit=deposit,
-                interest_rate=resolver.resolve_interest_rate("savings"),
-                min_balance=resolver.resolve_min_balance("savings"),
-            )
-
-        def create_pro(owner: str, deposit: float) -> ProAccount:
-            return ProAccount(
-                owner_name=owner,
-                initial_deposit=deposit,
-                overdraft_limit=resolver.resolve_overdraft("pro"),
-                daily_limit=resolver.resolve_daily_limit("pro"),
-            )
-
-        cls._creators["current"] = create_current
-        cls._creators["savings"] = create_savings
-        cls._creators["pro"] = create_pro
-
-
-# ---------------------------------------------------------------------------
-# Initialize the factory with default account types at import time
-# ---------------------------------------------------------------------------
-AccountFactory._register_defaults()
 
 
 # ---------------------------------------------------------------------------
